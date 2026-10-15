@@ -1,0 +1,176 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum Role {
+  ADMIN
+  AGENT
+  REQUESTER
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  PENDING
+  RESOLVED
+  CLOSED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum TestStatus {
+  NOT_RUN
+  PASS
+  FAIL
+}
+
+model User {
+  id           String         @id @default(cuid())
+  name         String
+  email        String         @unique
+  passwordHash String
+  role         Role           @default(REQUESTER)
+  active       Boolean        @default(true)
+  createdAt    DateTime       @default(now())
+  tickets      Ticket[]       @relation("RequesterTickets")
+  assignments  Ticket[]       @relation("AssignedTickets")
+  comments     Comment[]
+  activities   TicketActivity[]
+  notifications Notification[]
+}
+
+model Ticket {
+  id             String          @id @default(cuid())
+  number         String          @unique @default(cuid())
+  subject        String
+  description    String
+  category       String
+  priority       Priority        @default(MEDIUM)
+  status         TicketStatus    @default(OPEN)
+  dueDate        DateTime?
+  resolutionNotes String?
+  requesterId    String
+  assigneeId     String?
+  requester      User            @relation("RequesterTickets", fields: [requesterId], references: [id])
+  assignee       User?           @relation("AssignedTickets", fields: [assigneeId], references: [id])
+  comments       Comment[]
+  activities     TicketActivity[]
+  feedback       Feedback?
+  escalations    EscalationHistory[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  @@index([status, priority])
+  @@index([requesterId])
+  @@index([assigneeId])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  body      String
+  ticketId  String
+  authorId  String
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+model TicketActivity {
+  id        String   @id @default(cuid())
+  action    String
+  details   String?
+  ticketId  String
+  actorId   String
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  actor     User     @relation(fields: [actorId], references: [id])
+  createdAt DateTime @default(now())
+  @@index([ticketId, createdAt])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  title     String
+  body      String
+  readAt    DateTime?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+model Feedback {
+  id        String   @id @default(cuid())
+  rating    Int
+  comment   String?
+  ticketId  String   @unique
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+model EscalationRule {
+  id             String   @id @default(cuid())
+  priority       Priority @unique
+  thresholdHours Int
+  enabled        Boolean  @default(true)
+  updatedAt      DateTime @updatedAt
+}
+
+model EscalationHistory {
+  id          String   @id @default(cuid())
+  level       Int
+  reason      String
+  ticketId    String
+  ticket      Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  @@unique([ticketId, level])
+}
+
+model TestCase {
+  id           String        @id @default(cuid())
+  code         String        @unique
+  title        String
+  module       String
+  technique    String
+  preconditions String
+  steps        String
+  testData     String
+  expected     String
+  actual       String?
+  status       TestStatus    @default(NOT_RUN)
+  priority     Priority      @default(MEDIUM)
+  executions   TestExecution[]
+  defects      Defect[]
+}
+
+model TestExecution {
+  id          String     @id @default(cuid())
+  actual      String
+  defectNotes String?
+  status      TestStatus
+  testCaseId  String
+  testCase    TestCase   @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  executedAt  DateTime   @default(now())
+}
+
+model Defect {
+  id             String   @id @default(cuid())
+  code           String   @unique
+  title          String
+  description    String
+  severity       String
+  priority       Priority
+  steps          String
+  expected       String
+  actual         String
+  status         String   @default("OPEN")
+  testCaseId     String?
+  testCase       TestCase? @relation(fields: [testCaseId], references: [id])
+  reportedAt     DateTime @default(now())
+}
