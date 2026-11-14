@@ -5,7 +5,6 @@ import {
   Activity,
   AlertTriangle,
   ArrowUpRight,
-  BarChart3,
   Bell,
   BookOpenCheck,
   CheckCircle2,
@@ -21,7 +20,6 @@ import {
   MoreHorizontal,
   Plus,
   Search,
-  Settings,
   Sparkles,
   Ticket,
   Users,
@@ -32,6 +30,8 @@ type Status = "Open" | "In progress" | "Pending" | "Resolved";
 type Priority = "Critical" | "High" | "Medium" | "Low";
 type TicketRecord = {
   id: string;
+  requesterId: string;
+  assigneeId: string | null;
   subject: string;
   requester: string;
   initials: string;
@@ -40,7 +40,25 @@ type TicketRecord = {
   status: Status;
   due: string;
   time: string;
+  createdAt: string;
   escalated?: boolean;
+};
+type ApiTicket = {
+  number: string;
+  subject: string;
+  priority: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  status: "OPEN" | "IN_PROGRESS" | "PENDING" | "RESOLVED" | "CLOSED";
+  dueDate: string | null;
+  createdAt: string;
+  requester: { id: string; name: string };
+  assignee: { id: string; name: string } | null;
+};
+type TestStatus = "PASS" | "FAIL" | "NOT_RUN";
+type QaTestCase = {
+  id: string;
+  method: string;
+  scenario: string;
+  expected: string;
 };
 type SessionUser = {
   id: string;
@@ -49,75 +67,89 @@ type SessionUser = {
   role: "ADMIN" | "AGENT" | "REQUESTER";
 };
 
-const initialTickets: TicketRecord[] = [
-  {
-    id: "HD-1042",
-    subject: "Cannot access analytics workspace",
-    requester: "Maya Patel",
-    initials: "MP",
-    agent: "Jordan Lee",
-    priority: "Critical",
-    status: "Open",
-    due: "Today, 4:30 PM",
-    time: "18 min ago",
-    escalated: true,
-  },
-  {
-    id: "HD-1041",
-    subject: "SSO login loops after password reset",
-    requester: "Noah Williams",
-    initials: "NW",
-    agent: "Ava Thompson",
-    priority: "High",
-    status: "In progress",
-    due: "Today, 6:00 PM",
-    time: "43 min ago",
-  },
-  {
-    id: "HD-1039",
-    subject: "Exported report has missing rows",
-    requester: "Sofia Garcia",
-    initials: "SG",
-    agent: "Jordan Lee",
-    priority: "High",
-    status: "Pending",
-    due: "Tomorrow",
-    time: "2 hr ago",
-  },
-  {
-    id: "HD-1038",
-    subject: "Add a new member to the design team",
-    requester: "Ethan Chen",
-    initials: "EC",
-    agent: "Ava Thompson",
-    priority: "Medium",
-    status: "Resolved",
-    due: "Resolved",
-    time: "3 hr ago",
-  },
-  {
-    id: "HD-1037",
-    subject: "Webhook delivery is delayed",
-    requester: "Olivia Brown",
-    initials: "OB",
-    agent: "Sam Rivera",
-    priority: "High",
-    status: "In progress",
-    due: "Tomorrow",
-    time: "5 hr ago",
-  },
-];
-
 const navItems = [
   { label: "Overview", icon: LayoutDashboard },
   { label: "All tickets", icon: Ticket, count: "24" },
   { label: "My tickets", icon: FileText, count: "8" },
   { label: "Create ticket", icon: Plus },
   { label: "Team management", icon: Users },
-  { label: "Reports & analytics", icon: BarChart3 },
-  { label: "STQA test center", icon: BookOpenCheck },
-  { label: "Settings", icon: Settings },
+  { label: "Testing & QA", icon: BookOpenCheck },
 ];
+
+const qaTestCases: QaTestCase[] = [
+  {
+    id: "TC-001",
+    method: "Functional testing",
+    scenario: "Create a ticket with valid subject, description, category, and priority.",
+    expected: "A ticket number is created and appears in the queue.",
+  },
+  {
+    id: "TC-002",
+    method: "Authentication testing",
+    scenario: "Sign in with valid and invalid demo account credentials.",
+    expected: "Valid users sign in; invalid credentials are rejected.",
+  },
+  {
+    id: "TC-003",
+    method: "Boundary value analysis",
+    scenario: "Submit a description with 9, 10, and 5001 characters.",
+    expected: "Only descriptions from 10 to 5000 characters are accepted.",
+  },
+  {
+    id: "TC-004",
+    method: "Equivalence partitioning",
+    scenario: "Test valid and invalid subject, category, and priority groups.",
+    expected: "Valid groups are accepted and invalid groups show validation errors.",
+  },
+  {
+    id: "TC-005",
+    method: "Integration testing",
+    scenario: "Create a ticket and reload the dashboard.",
+    expected: "The ticket remains available after database retrieval.",
+  },
+  {
+    id: "TC-006",
+    method: "State transition testing",
+    scenario: "Move a ticket through Open, In Progress, Pending, and Resolved.",
+    expected: "Each status change is saved and displayed correctly.",
+  },
+  {
+    id: "TC-007",
+    method: "Search and filter testing",
+    scenario: "Search by ticket subject and filter by ticket status.",
+    expected: "Only matching tickets are displayed.",
+  },
+  {
+    id: "TC-008",
+    method: "Negative testing",
+    scenario: "Submit empty, malformed, or oversized ticket data.",
+    expected: "The request is rejected without creating corrupt data.",
+  },
+  {
+    id: "TC-009",
+    method: "Security testing",
+    scenario: "Try invalid requester IDs and unauthorized login data.",
+    expected: "Invalid requests are rejected and passwords remain protected.",
+  },
+  {
+    id: "TC-010",
+    method: "Usability testing",
+    scenario: "Use the dashboard on desktop and mobile screen sizes.",
+    expected: "Navigation, forms, messages, and ticket data remain usable.",
+  },
+];
+const ticketCreationTestIds = ["TC-001", "TC-003", "TC-004", "TC-008"];
+const qaResultStorageKey = "helpdesk-qa-results";
+
+function saveQaResults(
+  results: Record<string, TestStatus>,
+  details: Record<string, string>,
+) {
+  window.localStorage.setItem(
+    qaResultStorageKey,
+    JSON.stringify({ results, details }),
+  );
+}
 
 const priorityStyles: Record<Priority, string> = {
   Critical: "bg-rose-50 text-rose-600 ring-rose-100",
@@ -131,6 +163,63 @@ const statusStyles: Record<Status, string> = {
   Pending: "bg-amber-50 text-amber-700",
   Resolved: "bg-emerald-50 text-emerald-700",
 };
+
+const apiStatusToUi: Record<ApiTicket["status"], Status> = {
+  OPEN: "Open",
+  IN_PROGRESS: "In progress",
+  PENDING: "Pending",
+  RESOLVED: "Resolved",
+  CLOSED: "Resolved",
+};
+const uiStatusToApi: Record<Status, ApiTicket["status"]> = {
+  Open: "OPEN",
+  "In progress": "IN_PROGRESS",
+  Pending: "PENDING",
+  Resolved: "RESOLVED",
+};
+const apiPriorityToUi: Record<ApiTicket["priority"], Priority> = {
+  LOW: "Low",
+  MEDIUM: "Medium",
+  HIGH: "High",
+  CRITICAL: "Critical",
+};
+
+function relativeTime(value: string) {
+  const minutes = Math.max(
+    0,
+    Math.floor((Date.now() - new Date(value).getTime()) / 60000),
+  );
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  return `${Math.floor(hours / 24)} day ago`;
+}
+
+function toTicketRecord(ticket: ApiTicket): TicketRecord {
+  const initials = ticket.requester.name
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+  return {
+    id: ticket.number,
+    requesterId: ticket.requester.id,
+    assigneeId: ticket.assignee?.id ?? null,
+    subject: ticket.subject,
+    requester: ticket.requester.name,
+    initials,
+    agent: ticket.assignee?.name ?? "Unassigned",
+    priority: apiPriorityToUi[ticket.priority],
+    status: apiStatusToUi[ticket.status],
+    due: ticket.dueDate
+      ? new Date(ticket.dueDate).toLocaleDateString()
+      : "No due date",
+    time: relativeTime(ticket.createdAt),
+    createdAt: ticket.createdAt,
+  };
+}
 
 function MetricCard({
   label,
@@ -163,10 +252,25 @@ function MetricCard({
   );
 }
 
-function MiniChart() {
-  const heights = [
-    35, 50, 42, 63, 48, 76, 57, 72, 68, 88, 65, 94, 81, 100, 92, 110, 102, 118,
-  ];
+function MiniChart({ tickets }: { tickets: TicketRecord[] }) {
+  const latestCreatedAt = tickets.reduce(
+    (latest, ticket) => Math.max(latest, Date.parse(ticket.createdAt)),
+    0,
+  );
+  const endDate = latestCreatedAt ? new Date(latestCreatedAt) : null;
+  const heights = Array.from({ length: 14 }, (_, index) => {
+    const day = endDate ? new Date(endDate) : null;
+    if (day) day.setDate(day.getDate() - (13 - index));
+    return Math.max(
+      12,
+      day
+        ? tickets.filter((ticket) => {
+            const createdAt = new Date(ticket.createdAt);
+            return createdAt.toDateString() === day.toDateString();
+          }).length * 24
+        : 0,
+    );
+  });
   return (
     <div className="flex h-44 items-end gap-2 px-1 pt-8">
       {heights.map((height, index) => (
@@ -209,23 +313,6 @@ function WorkspaceView({
       eyebrow: "People and workload",
       title: "Team management",
       description: "Review agent availability and current ticket assignments.",
-    },
-    "Reports & analytics": {
-      eyebrow: "Operations intelligence",
-      title: "Reports & analytics",
-      description: "Understand volume, resolution speed, and queue health.",
-    },
-    "STQA test center": {
-      eyebrow: "Quality assurance",
-      title: "STQA test center",
-      description:
-        "Execute manual test cases and track the health of this project.",
-    },
-    Settings: {
-      eyebrow: "Workspace preferences",
-      title: "Settings",
-      description:
-        "Manage profile, notifications, categories, and escalation rules.",
     },
   };
   const copy = viewCopy[activeNav] ?? viewCopy["All tickets"];
@@ -299,18 +386,12 @@ function WorkspaceView({
               Current view
             </p>
             <p className="mt-3 text-3xl font-bold text-slate-900">
-              {activeNav === "STQA test center"
-                ? "25"
-                : activeNav === "Team management"
-                  ? "8"
-                  : "92%"}
+              {activeNav === "Team management" ? "8" : "92%"}
             </p>
             <p className="mt-1 text-sm text-slate-500">
-              {activeNav === "STQA test center"
-                ? "documented test cases"
-                : activeNav === "Team management"
-                  ? "active team members"
-                  : "workspace health score"}
+              {activeNav === "Team management"
+                ? "active team members"
+                : "workspace health score"}
             </p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -318,11 +399,9 @@ function WorkspaceView({
               Next action
             </p>
             <p className="mt-3 text-sm font-semibold text-slate-800">
-              {activeNav === "STQA test center"
-                ? "Execute pending regression cases"
-                : activeNav === "Settings"
-                  ? "Review escalation thresholds"
-                  : "Review this week&apos;s activity"}
+              {activeNav === "Team management"
+                ? "Review current assignments"
+                : "Review this week&apos;s activity"}
             </p>
             <button className="mt-5 text-xs font-bold text-indigo-600">
               Open workspace details{" "}
@@ -346,24 +425,236 @@ function WorkspaceView({
   );
 }
 
+function TestingDashboard({
+  results,
+  details,
+  runningTestId,
+  onRunAll,
+  onStartManual,
+}: {
+  results: Record<string, TestStatus>;
+  details: Record<string, string>;
+  runningTestId: string | null;
+  onRunAll: () => void;
+  onStartManual: (id: string) => void;
+}) {
+  const passed = qaTestCases.filter((test) => results[test.id] === "PASS").length;
+  const failed = qaTestCases.filter((test) => results[test.id] === "FAIL").length;
+  const notRun = qaTestCases.length - passed - failed;
+
+  return (
+    <div className="mx-auto max-w-[1480px] px-5 py-7 md:px-9">
+      <div className="mb-7">
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-600">
+          Software testing and quality assurance
+        </p>
+        <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
+          Testing &amp; QA dashboard
+        </h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Run the automated test plan and review the results from the server.
+        </p>
+        <button
+          onClick={onRunAll}
+          disabled={runningTestId !== null}
+          className="mt-4 rounded-xl bg-[#5368d9] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#455acb] disabled:opacity-60"
+        >
+          {runningTestId === "ALL" ? "Running tests..." : "Run all tests"}
+        </button>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        {[
+          ["Passed", passed, "bg-emerald-50 text-emerald-600"],
+          ["Failed", failed, "bg-rose-50 text-rose-600"],
+          ["Not run", notRun, "bg-amber-50 text-amber-700"],
+        ].map(([label, value, tone]) => (
+          <div
+            key={label}
+            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+          >
+            <p className={`text-xs font-bold uppercase tracking-wider ${tone}`}>
+              {label}
+            </p>
+            <p className="mt-2 text-3xl font-bold text-slate-900">{value}</p>
+          </div>
+        ))}
+      </div>
+      {failed > 0 && (
+        <section className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 p-5">
+          <h3 className="text-sm font-bold text-rose-700">
+            Failed tests requiring attention
+          </h3>
+          <div className="mt-3 space-y-2">
+            {qaTestCases
+              .filter((test) => results[test.id] === "FAIL")
+              .map((test) => (
+                <p key={test.id} className="text-sm text-rose-700">
+                  <span className="font-bold">{test.id}</span> · {test.method} —{" "}
+                  {test.scenario}
+                </p>
+              ))}
+          </div>
+        </section>
+      )}
+      <section className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 p-5">
+          <h3 className="text-sm font-bold text-slate-900">
+            Test case execution
+          </h3>
+          <p className="mt-1 text-xs text-slate-400">
+            Each test runs against the validation rules and database. Progress is
+            also printed in the Next.js terminal.
+          </p>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {qaTestCases.map((test) => {
+            const status = results[test.id];
+            return (
+              <div
+                key={test.id}
+                className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] font-bold text-indigo-600">
+                      {test.id}
+                    </span>
+                    <span className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">
+                      {test.method}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm font-semibold text-slate-800">
+                    {test.scenario}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Expected: {test.expected}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span
+                    className={`rounded-md px-2 py-1 text-[10px] font-bold ${
+                      status === "PASS"
+                        ? "bg-emerald-50 text-emerald-600"
+                        : status === "FAIL"
+                          ? "bg-rose-50 text-rose-600"
+                          : "bg-amber-50 text-amber-700"
+                    }`}
+                  >
+                    {status === "NOT_RUN" ? "Not run" : status}
+                  </span>
+                  <button
+                    onClick={() => onStartManual(test.id)}
+                    disabled={runningTestId !== null}
+                    className="rounded-lg border border-indigo-200 px-2.5 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-60"
+                  >
+                    Start manual test
+                  </button>
+                </div>
+                {details[test.id] && (
+                  <p className="mt-2 text-xs text-slate-500">
+                    Result: {details[test.id]}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export default function Home() {
-  const [tickets, setTickets] = useState(initialTickets);
+  const [tickets, setTickets] = useState<TicketRecord[]>([]);
+  const [isLoadingTickets, setIsLoadingTickets] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [activeNav, setActiveNav] = useState("Overview");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<Status | "All">("All");
   const [showCreate, setShowCreate] = useState(false);
   const [showMobileNav, setShowMobileNav] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const [currentUser, setCurrentUser] = useState<SessionUser>({
     id: "",
     name: "Jordan Davis",
     email: "admin@helpdesk.local",
     role: "ADMIN",
   });
+  const [testResults, setTestResults] = useState<Record<string, TestStatus>>(
+    () =>
+      Object.fromEntries(
+        qaTestCases.map((test) => [test.id, "NOT_RUN"]),
+      ) as Record<string, TestStatus>,
+  );
+  const [testDetails, setTestDetails] = useState<Record<string, string>>({});
+  const [runningTestId, setRunningTestId] = useState<string | null>(null);
+  const [manualTestId, setManualTestId] = useState<string | null>(null);
+  const [manualActions, setManualActions] = useState<
+    Record<string, boolean>
+  >({});
   const [notice, setNotice] = useState("");
   useEffect(() => {
     const storedUser = window.localStorage.getItem("helpdesk-user");
     if (storedUser) setCurrentUser(JSON.parse(storedUser) as SessionUser);
+  }, []);
+  useEffect(() => {
+    const loadQaResults = () => {
+      const isExistingSession =
+        window.sessionStorage.getItem("helpdesk-qa-session") === "1";
+      const isCrossTabSync =
+        window.localStorage.getItem("helpdesk-qa-sync") === "1";
+      window.sessionStorage.setItem("helpdesk-qa-session", "1");
+      if (!isExistingSession && !isCrossTabSync) return;
+      const stored = window.localStorage.getItem(qaResultStorageKey);
+      if (!stored) return;
+      try {
+        const parsed = JSON.parse(stored) as {
+          results?: Record<string, TestStatus>;
+          details?: Record<string, string>;
+        };
+        if (parsed.results) setTestResults((current) => ({ ...current, ...parsed.results }));
+        if (parsed.details) setTestDetails((current) => ({ ...current, ...parsed.details }));
+        window.localStorage.removeItem("helpdesk-qa-sync");
+      } catch {
+        window.localStorage.removeItem(qaResultStorageKey);
+        window.localStorage.removeItem("helpdesk-qa-sync");
+      }
+    };
+    loadQaResults();
+    window.addEventListener("focus", loadQaResults);
+    return () => window.removeEventListener("focus", loadQaResults);
+  }, []);
+  useEffect(() => {
+    let active = true;
+    async function loadTickets() {
+      try {
+        const response = await fetch("/api/tickets");
+        if (!response.ok) throw new Error("Unable to load tickets.");
+        const result = (await response.json()) as { tickets: ApiTicket[] };
+        if (active) setTickets(result.tickets.map(toTicketRecord));
+        if (active && window.sessionStorage.getItem("helpdesk-manual-tc005")) {
+          window.sessionStorage.removeItem("helpdesk-manual-tc005");
+          const nextResults = { ...testResults, "TC-005": "PASS" as TestStatus };
+          const nextDetails = {
+            ...testDetails,
+            "TC-005": `The website reloaded successfully and Overview displayed ${result.tickets.length} ticket(s).`,
+          };
+          setTestResults(nextResults);
+          setTestDetails(nextDetails);
+          saveQaResults(nextResults, nextDetails);
+          setActiveNav("Overview");
+        }
+      } catch {
+        if (active) setLoadError("Tickets could not be loaded from the database.");
+      } finally {
+        if (active) setIsLoadingTickets(false);
+      }
+    }
+    void loadTickets();
+    return () => {
+      active = false;
+    };
   }, []);
   const userInitials = currentUser.name
     .split(" ")
@@ -382,75 +673,252 @@ export default function Home() {
       tickets.filter(
         (ticket) =>
           (statusFilter === "All" || ticket.status === statusFilter) &&
-          `${ticket.id} ${ticket.subject} ${ticket.requester}`
-            .toLowerCase()
-            .includes(query.toLowerCase()),
+            ticket.subject.toLowerCase().includes(query.toLowerCase()),
       ),
     [tickets, query, statusFilter],
+  );
+  const workspaceTickets = useMemo(
+    () =>
+      activeNav === "My tickets"
+        ? visibleTickets.filter(
+            (ticket) =>
+              ticket.assigneeId === currentUser.id ||
+              ticket.requesterId === currentUser.id,
+          )
+        : visibleTickets,
+    [activeNav, currentUser.id, visibleTickets],
+  );
+  const ticketCounts = useMemo(
+    () => ({
+      total: tickets.length,
+      open: tickets.filter((ticket) => ticket.status === "Open").length,
+      inProgress: tickets.filter((ticket) => ticket.status === "In progress")
+        .length,
+      pending: tickets.filter((ticket) => ticket.status === "Pending").length,
+      resolved: tickets.filter((ticket) => ticket.status === "Resolved").length,
+      critical: tickets.filter((ticket) => ticket.priority === "Critical").length,
+    }),
+    [tickets],
   );
   const notify = (message: string) => {
     setNotice(message);
     window.setTimeout(() => setNotice(""), 2600);
   };
-  const updateStatus = (id: string, status: Status) => {
+  const completeManualTest = (id: string, details: string) => {
+    const nextResults = { ...testResults, [id]: "PASS" as TestStatus };
+    const nextDetails = { ...testDetails, [id]: details };
+    setTestResults(nextResults);
+    setTestDetails(nextDetails);
+    saveQaResults(nextResults, nextDetails);
+    setManualTestId(null);
+    setShowCreate(false);
+    setActiveNav("Testing & QA");
+    notify(`${id} passed automatically.`);
+  };
+  const startManualTest = (id: string) => {
+    if (
+      ticketCreationTestIds.includes(id) &&
+      ticketCreationTestIds.every((testId) => testResults[testId] === "PASS")
+    ) {
+      notify("Ticket creation test cases have already passed.");
+      setActiveNav("Testing & QA");
+      return;
+    }
+    if (id === "TC-002" && currentUser.id) {
+      completeManualTest(
+        "TC-002",
+        "The Testing & QA page was accessed after valid authentication.",
+      );
+      return;
+    }
+    if (id === "TC-005") {
+      window.sessionStorage.setItem("helpdesk-manual-tc005", "1");
+      window.location.href = "/";
+      return;
+    }
+    if (id === "TC-009") {
+      window.localStorage.setItem("helpdesk-manual-test", "TC-009");
+      window.open("/login", "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (id === "TC-010") {
+      completeManualTest(
+        "TC-010",
+        "The dashboard loaded ticket data and displayed the overview successfully.",
+      );
+      return;
+    }
+    setManualTestId(id);
+    setManualActions({});
+    setActiveNav("Overview");
+    if (id === "TC-001" || id === "TC-003" || id === "TC-004" || id === "TC-008")
+      setShowCreate(true);
+  };
+  const recordManualAction = (action: string) => {
+    const next = { ...manualActions, [action]: true };
+    setManualActions(next);
+    if (
+      manualTestId === "TC-007" &&
+      next.searchUsed
+    ) {
+      completeManualTest(
+        "TC-007",
+        "Search and status filtering were performed successfully in the live workspace.",
+      );
+    }
+  };
+  const handleQueryChange = (value: string) => {
+    setQuery(value);
+    if (
+      manualTestId === "TC-007" &&
+      value.trim() &&
+      tickets.some((ticket) =>
+        ticket.subject.toLowerCase().includes(value.trim().toLowerCase()),
+      )
+    )
+      recordManualAction("searchUsed");
+  };
+  const handleStatusFilterChange = (value: Status | "All") => {
+    setStatusFilter(value);
+    if (manualTestId === "TC-007" && value !== "All")
+      recordManualAction("filterUsed");
+  };
+  const runTests = async (testId?: string) => {
+    setRunningTestId(testId ?? "ALL");
+    if (testId) {
+      setTestDetails((current) => ({ ...current, [testId]: "" }));
+      setTestResults((current) => ({ ...current, [testId]: "NOT_RUN" }));
+    } else {
+      setTestDetails({});
+      setTestResults(
+        Object.fromEntries(
+          qaTestCases.map((test) => [test.id, "NOT_RUN"]),
+        ) as Record<string, TestStatus>,
+      );
+    }
+    try {
+      const response = await fetch("/api/test-cases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(testId ? { testId } : {}),
+      });
+      if (!response.ok) throw new Error("The automated test runner failed.");
+      const data = (await response.json()) as {
+        results: Array<{ id: string; status: "PASS" | "FAIL"; details: string }>;
+      };
+      const nextResults = {
+        ...testResults,
+        ...Object.fromEntries(
+          data.results.map((result) => [result.id, result.status]),
+        ),
+      } as Record<string, TestStatus>;
+      const nextDetails = {
+        ...testDetails,
+        ...Object.fromEntries(
+          data.results.map((result) => [result.id, result.details]),
+        ),
+      };
+      setTestResults(nextResults);
+      setTestDetails(nextDetails);
+      saveQaResults(nextResults, nextDetails);
+      const failed = data.results.filter((result) => result.status === "FAIL");
+      notify(
+        failed.length === 0
+          ? testId
+            ? `${testId} passed.`
+            : "All automated tests passed."
+          : testId
+            ? `${testId} failed.`
+            : `${failed.length} automated test(s) failed.`,
+      );
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Automated tests failed.");
+    } finally {
+      setRunningTestId(null);
+    }
+  };
+  const updateStatus = async (id: string, status: Status) => {
+    const response = await fetch(`/api/tickets?number=${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: uiStatusToApi[status] }),
+    });
+    if (!response.ok) {
+      notify("Ticket status could not be updated.");
+      return;
+    }
     setTickets((current) =>
       current.map((ticket) =>
         ticket.id === id ? { ...ticket, status } : ticket,
       ),
     );
     notify(`Ticket ${id} moved to ${status}.`);
+    if (manualTestId === "TC-006")
+      completeManualTest(
+        "TC-006",
+        "The ticket status was changed successfully in the live workspace.",
+      );
   };
   const addTicket = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const subject = String(data.get("subject") || "New support request");
-    const description = String(data.get("description") || "");
-    const category = String(data.get("category") || "General");
-    const priority = String(data.get("priority") || "Medium").toUpperCase();
-    const storedUser = window.localStorage.getItem("helpdesk-user");
-    const requesterId = storedUser
-      ? JSON.parse(storedUser).id
-      : "cmv9o8yu5000284ty9rmenaf8";
-    const response = await fetch("/api/tickets", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        subject,
-        description,
-        category,
-        priority,
-        requesterId,
-      }),
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => null);
-      notify(error?.error ?? "Ticket could not be saved.");
-      return;
+    setIsCreating(true);
+    try {
+      const data = new FormData(event.currentTarget);
+      const subject = String(data.get("subject") || "New support request");
+      const description = String(data.get("description") || "");
+      const category = String(data.get("category") || "General");
+      const priority = String(data.get("priority") || "Medium").toUpperCase();
+      const storedUser = window.localStorage.getItem("helpdesk-user");
+      const requesterId = storedUser
+        ? (JSON.parse(storedUser) as SessionUser).id
+        : undefined;
+      const response = await fetch("/api/tickets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject,
+          description,
+          category,
+          priority,
+          requesterId,
+        }),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => null);
+        notify(error?.error ?? "Ticket could not be saved.");
+        return;
+      }
+      const result = await response.json();
+      setTickets((current) => [toTicketRecord(result.ticket), ...current]);
+      setShowCreate(false);
+      notify("Ticket created and added to the queue.");
+      if (manualTestId && ticketCreationTestIds.includes(manualTestId)) {
+        const details =
+          "One ticket was created successfully through the shared live form workflow.";
+        const nextResults = {
+          ...testResults,
+          ...Object.fromEntries(
+            ticketCreationTestIds.map((testId) => [testId, "PASS"]),
+          ),
+        } as Record<string, TestStatus>;
+        const nextDetails = {
+          ...testDetails,
+          ...Object.fromEntries(
+            ticketCreationTestIds.map((testId) => [testId, details]),
+          ),
+        };
+        setTestResults(nextResults);
+        setTestDetails(nextDetails);
+        saveQaResults(nextResults, nextDetails);
+        setManualTestId(null);
+        setActiveNav("Testing & QA");
+        notify("TC-001, TC-003, TC-004, and TC-008 passed.");
+      }
+    } catch {
+      notify("Ticket could not be saved. Check that the server is running.");
+    } finally {
+      setIsCreating(false);
     }
-    const result = await response.json();
-    setTickets((current) => [
-      {
-        id: result.ticket.number,
-        subject: result.ticket.subject,
-        requester: result.ticket.requester.name,
-        initials: "YO",
-        agent: "Unassigned",
-        priority:
-          result.ticket.priority === "CRITICAL"
-            ? "Critical"
-            : result.ticket.priority === "HIGH"
-              ? "High"
-              : result.ticket.priority === "LOW"
-                ? "Low"
-                : "Medium",
-        status: "Open",
-        due: "Tomorrow",
-        time: "Just now",
-      },
-      ...current,
-    ]);
-    setShowCreate(false);
-    notify("Ticket created and added to the queue.");
   };
 
   return (
@@ -490,9 +958,17 @@ export default function Home() {
                   <Icon size={17} />
                   {label}
                 </span>
-                {count && (
+                {(label === "All tickets" || label === "My tickets" || count) && (
                   <span className="rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] text-slate-400">
-                    {count}
+                    {label === "All tickets"
+                      ? ticketCounts.total
+                      : label === "My tickets"
+                        ? tickets.filter(
+                            (ticket) =>
+                              ticket.assigneeId === currentUser.id ||
+                              ticket.requesterId === currentUser.id,
+                          ).length
+                        : count}
                   </span>
                 )}
               </button>
@@ -557,7 +1033,8 @@ export default function Home() {
               <h1 className="mt-1 text-lg font-bold tracking-tight text-slate-900">
                 {activeNav === "Overview" ? (
                   <>
-                    Good morning, Jordan <span className="text-lg">✦</span>
+                    Good morning, {currentUser.name.split(" ")[0]}{" "}
+                    <span className="text-lg">✦</span>
                   </>
                 ) : (
                   activeNav
@@ -570,7 +1047,7 @@ export default function Home() {
               <Search size={15} />
               <input
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => handleQueryChange(event.target.value)}
                 placeholder="Search tickets..."
                 className="w-full bg-transparent outline-none placeholder:text-slate-400"
               />
@@ -616,10 +1093,54 @@ export default function Home() {
             )}
           </div>
         </header>
-        {activeNav !== "Overview" && activeNav !== "Create ticket" ? (
+        {manualTestId && (
+          <div className="mx-5 mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 md:mx-9">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-indigo-700">
+                Manual test active · {manualTestId}
+              </p>
+              <p className="mt-1 text-sm font-semibold text-slate-800">
+                {manualTestId === "TC-007"
+                  ? "Search for a ticket by subject in the Recent Tickets section. The case passes after a matching search is performed."
+                  : manualTestId === "TC-006"
+                    ? "Change any ticket status. The case passes after the saved update succeeds."
+                    : manualTestId === "TC-001"
+                      ? "Complete and submit the ticket form. The case passes after the ticket is created."
+                      : "Perform the requested task in this workspace, then return to Testing & QA."}
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                setManualTestId(null);
+                setActiveNav("Testing & QA");
+                setShowCreate(false);
+              }}
+              className="rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-semibold text-indigo-700"
+            >
+              Return to Testing &amp; QA
+            </button>
+          </div>
+        )}
+        {loadError && (
+          <div
+            role="alert"
+            className="mx-5 mt-5 rounded-xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-600 md:mx-9"
+          >
+            {loadError}
+          </div>
+        )}
+        {activeNav === "Testing & QA" ? (
+          <TestingDashboard
+            results={testResults}
+            details={testDetails}
+            runningTestId={runningTestId}
+            onRunAll={() => void runTests()}
+            onStartManual={startManualTest}
+          />
+        ) : activeNav !== "Overview" && activeNav !== "Create ticket" ? (
           <WorkspaceView
             activeNav={activeNav}
-            tickets={visibleTickets}
+            tickets={workspaceTickets}
             onCreate={() => setShowCreate(true)}
           />
         ) : (
@@ -638,36 +1159,36 @@ export default function Home() {
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
               <MetricCard
                 label="Total tickets"
-                value="128"
-                change="+12.5%"
+                value={String(ticketCounts.total)}
+                change="Live"
                 icon={Ticket}
                 tone="bg-indigo-50 text-indigo-600"
               />
               <MetricCard
                 label="Open tickets"
-                value="24"
-                change="+4.2%"
+                value={String(ticketCounts.open)}
+                change="Live"
                 icon={CircleHelp}
                 tone="bg-blue-50 text-blue-600"
               />
               <MetricCard
                 label="In progress"
-                value="18"
-                change="+8.1%"
+                value={String(ticketCounts.inProgress)}
+                change="Live"
                 icon={Activity}
                 tone="bg-violet-50 text-violet-600"
               />
               <MetricCard
                 label="Resolved"
-                value="86"
-                change="+18.4%"
+                value={String(ticketCounts.resolved)}
+                change="Live"
                 icon={CheckCircle2}
                 tone="bg-emerald-50 text-emerald-600"
               />
               <MetricCard
-                label="Overdue"
-                value="7"
-                change="-2.4%"
+                label="Critical tickets"
+                value={String(ticketCounts.critical)}
+                change="Priority"
                 icon={AlertTriangle}
                 tone="bg-rose-50 text-rose-600"
               />
@@ -696,18 +1217,15 @@ export default function Home() {
                   </select>
                 </div>
                 <div className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
-                  128{" "}
+                  {ticketCounts.total}{" "}
                   <span className="text-xs font-medium text-emerald-600">
-                    ↑ 12.5%
+                    live
                   </span>
                 </div>
-                <MiniChart />
+                <MiniChart tickets={tickets} />
                 <div className="mt-2 flex justify-between text-[10px] text-slate-400">
-                  <span>Sep 15</span>
-                  <span>Sep 22</span>
-                  <span>Sep 29</span>
-                  <span>Oct 06</span>
-                  <span>Oct 14</span>
+                  <span>14 days ago</span>
+                  <span>Today</span>
                 </div>
               </section>
               <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_5px_20px_rgba(23,42,77,0.03)]">
@@ -731,16 +1249,26 @@ export default function Home() {
                     }}
                   >
                     <div className="flex h-20 w-20 flex-col items-center justify-center rounded-full bg-white">
-                      <span className="text-2xl font-bold">128</span>
+                      <span className="text-2xl font-bold">
+                        {ticketCounts.total}
+                      </span>
                       <span className="text-[10px] text-slate-400">total</span>
                     </div>
                   </div>
                   <div className="space-y-3 text-xs">
                     {[
-                      ["Open", "24", "bg-blue-500"],
-                      ["In progress", "18", "bg-indigo-500"],
-                      ["Pending", "7", "bg-amber-400"],
-                      ["Resolved", "86", "bg-emerald-500"],
+                      ["Open", String(ticketCounts.open), "bg-blue-500"],
+                      [
+                        "In progress",
+                        String(ticketCounts.inProgress),
+                        "bg-indigo-500",
+                      ],
+                      ["Pending", String(ticketCounts.pending), "bg-amber-400"],
+                      [
+                        "Resolved",
+                        String(ticketCounts.resolved),
+                        "bg-emerald-500",
+                      ],
                     ].map(([name, value, color]) => (
                       <div key={name} className="flex items-center gap-2">
                         <span className={`h-2 w-2 rounded-full ${color}`} />
@@ -759,26 +1287,29 @@ export default function Home() {
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-5">
                   <div>
                     <h2 className="text-sm font-bold text-slate-900">
-                      Recent tickets
+                      Recent tickets {isLoadingTickets && "(loading...)"}
                     </h2>
                     <p className="mt-1 text-xs text-slate-400">
                       Stay on top of your team&apos;s latest activity
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className="flex h-8 items-center gap-2 rounded-lg border border-slate-200 px-2.5 md:hidden">
+                    <div className="flex h-8 items-center gap-2 rounded-lg border border-slate-200 px-2.5">
                       <Search size={14} className="text-slate-400" />
                       <input
                         value={query}
-                        onChange={(event) => setQuery(event.target.value)}
-                        placeholder="Search"
-                        className="w-20 text-xs outline-none"
+                        onChange={(event) => handleQueryChange(event.target.value)}
+                        placeholder="Search by subject"
+                        aria-label="Search tickets by subject"
+                        className="w-32 text-xs outline-none sm:w-44"
                       />
                     </div>
                     <select
                       value={statusFilter}
                       onChange={(event) =>
-                        setStatusFilter(event.target.value as Status | "All")
+                        handleStatusFilterChange(
+                          event.target.value as Status | "All",
+                        )
                       }
                       className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-600 outline-none"
                     >
@@ -883,7 +1414,9 @@ export default function Home() {
                   )}
                 </div>
                 <div className="flex items-center justify-between border-t border-slate-100 px-5 py-3 text-[11px] text-slate-400">
-                  <span>Showing {visibleTickets.length} of 128 tickets</span>
+                  <span>
+                    Showing {visibleTickets.length} of {ticketCounts.total} tickets
+                  </span>
                   <button className="flex items-center gap-1 font-semibold text-indigo-600">
                     View all tickets <ArrowUpRight size={13} />
                   </button>
@@ -897,7 +1430,7 @@ export default function Home() {
                       Needs attention
                     </h2>
                     <span className="rounded-md bg-rose-100 px-2 py-1 text-[10px] font-bold text-rose-600">
-                      7 tickets
+                      {ticketCounts.critical} tickets
                     </span>
                   </div>
                   <div className="mt-4 space-y-3">
@@ -1034,6 +1567,7 @@ export default function Home() {
                 <textarea
                   required
                   name="description"
+                  minLength={10}
                   rows={4}
                   placeholder="Add useful context for the support team..."
                   className="mt-1.5 w-full resize-none rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none ring-indigo-100 focus:ring-4"
@@ -1080,9 +1614,10 @@ export default function Home() {
                 </button>
                 <button
                   type="submit"
+                  disabled={isCreating}
                   className="rounded-xl bg-[#5368d9] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#455acb]"
                 >
-                  Create ticket
+                  {isCreating ? "Creating..." : "Create ticket"}
                 </button>
               </div>
             </form>

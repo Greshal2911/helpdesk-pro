@@ -1,15 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-
-const ticketSchema = z.object({
-  subject: z.string().trim().min(3).max(120),
-  description: z.string().trim().min(10).max(5000),
-  category: z.string().trim().min(1).max(60),
-  priority: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).default("MEDIUM"),
-  dueDate: z.coerce.date().optional(),
-  requesterId: z.string().min(1),
-});
+import { statusSchema, ticketSchema } from "@/lib/ticket-validation";
 
 export async function GET(request: NextRequest) {
   const search = request.nextUrl.searchParams.get("search")?.trim();
@@ -42,11 +33,42 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ tickets });
 }
 
+export async function PATCH(request: NextRequest) {
+  const number = request.nextUrl.searchParams.get("number");
+  const parsed = statusSchema.safeParse((await request.json()).status);
+  if (!number || !parsed.success)
+    return NextResponse.json(
+      { error: "A valid ticket status is required." },
+      { status: 400 },
+    );
+
+  const ticket = await prisma.ticket.update({
+    where: { number },
+    data: { status: parsed.data },
+    include: {
+      requester: { select: { id: true, name: true } },
+      assignee: { select: { id: true, name: true } },
+    },
+  });
+  return NextResponse.json({ ticket });
+}
+
 export async function POST(request: NextRequest) {
   const parsed = ticketSchema.safeParse(await request.json());
   if (!parsed.success)
     return NextResponse.json(
       { error: "Invalid ticket data", issues: parsed.error.flatten() },
+      { status: 400 },
+    );
+  const requester = parsed.data.requesterId
+    ? await prisma.user.findUnique({ where: { id: parsed.data.requesterId } })
+    : await prisma.user.findFirst({
+        where: { active: true },
+        orderBy: { createdAt: "asc" },
+      });
+  if (!requester)
+    return NextResponse.json(
+      { error: "No active requester account is available." },
       { status: 400 },
     );
   const latestTicket = await prisma.ticket.findFirst({
@@ -58,7 +80,11 @@ export async function POST(request: NextRequest) {
     ? Number(latestTicket.number.replace("HD-", ""))
     : 1000;
   const ticket = await prisma.ticket.create({
-    data: { ...parsed.data, number: `HD-${lastNumber + 1}` },
+    data: {
+      ...parsed.data,
+      requesterId: requester.id,
+      number: `HD-${lastNumber + 1}`,
+    },
     include: { requester: { select: { id: true, name: true } } },
   });
   return NextResponse.json({ ticket }, { status: 201 });
