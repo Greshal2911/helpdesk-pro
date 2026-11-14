@@ -1,91 +1,129 @@
+import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
+import { nextTicketNumber, dueDateForPriority, recordActivity, notifyOthers, ticketListInclude, requireUser } from "@/lib/desk";
 import { prisma } from "@/lib/prisma";
-import { statusSchema, ticketSchema } from "@/lib/ticket-validation";
+import { firstIssue, ticketSchema } from "@/lib/ticket-validation";
+
+const openStatuses = ["OPEN", "IN_PROGRESS", "PENDING"] as const;
 
 export async function GET(request: NextRequest) {
-  const search = request.nextUrl.searchParams.get("search")?.trim();
-  const status = request.nextUrl.searchParams.get("status") as
-    | "OPEN"
-    | "IN_PROGRESS"
-    | "PENDING"
-    | "RESOLVED"
-    | "CLOSED"
-    | null;
+  const params = request.nextUrl.searchParams;
+  const search = params.get("search")?.trim();
+  const status = params.get("status");
+  const priority = params.get("priority");
+  const category = params.get("category");
+  const assignee = params.get("assignee");
+  const overdue = params.get("overdue") === "1";
+  const scope = params.get("scope");
+  const actorId = params.get("actorId");
+  const sort = params.get("sort") ?? "newest";
+
+  const where: Prisma.TicketWhereInput = {};
+  if (status && status !== "ALL") where.status = status as Prisma.TicketWhereInput["status"];
+  if (priority && priority !== "ALL")
+    where.priority = priority as Prisma.TicketWhereInput["priority"];
+  if (category && category !== "ALL") where.category = category;
+  if (assignee === "unassigned") where.assigneeId = null;
+  else if (assignee && assignee !== "ALL") where.assigneeId = assignee;
+  if (overdue) {
+    where.dueDate = { lt: new Date() };
+    where.status = status && status !== "ALL" ? where.status : { in: [...openStatuses] };
+  }
+  if (scope === "mine" && actorId) {
+    const actor = await requireUser(actorId);
+    if (actor?.role === "REQUESTER") where.requesterId = actor.id;
+    else if (actor) where.assigneeId = actor.id;
+  }
+  if (search) {
+    where.OR = [
+      { subject: { contains: search } },
+      { description: { contains: search } },
+      { number: { contains: search } },
+      { requester: { name: { contains: search } } },
+      { assignee: { name: { contains: search } } },
+    ];
+  }
+
   const tickets = await prisma.ticket.findMany({
-    where: {
-      ...(status ? { status } : {}),
-      ...(search
-        ? {
-            OR: [
-              { subject: { contains: search } },
-              { description: { contains: search } },
-            ],
-          }
-        : {}),
-    },
-    include: {
-      requester: { select: { id: true, name: true } },
-      assignee: { select: { id: true, name: true } },
-    },
+    where,
+    include: ticketListInclude,
     orderBy: { createdAt: "desc" },
-    take: 100,
+    take: 200,
   });
+
+  if (sort === "due") {
+    tickets.sort((a, b) => {
+      if (!a.dueDate) return 1;
+      if (!b.dueDate) return -1;
+      return a.dueDate.getTime() - b.dueDate.getTime();
+    });
+  }
+  if (sort === "priority") {
+    const rank = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+    tickets.sort((a, b) => rank[a.priority] - rank[b.priority]);
+  }
+
   return NextResponse.json({ tickets });
-}
-
-export async function PATCH(request: NextRequest) {
-  const number = request.nextUrl.searchParams.get("number");
-  const parsed = statusSchema.safeParse((await request.json()).status);
-  if (!number || !parsed.success)
-    return NextResponse.json(
-      { error: "A valid ticket status is required." },
-      { status: 400 },
-    );
-
-  const ticket = await prisma.ticket.update({
-    where: { number },
-    data: { status: parsed.data },
-    include: {
-      requester: { select: { id: true, name: true } },
-      assignee: { select: { id: true, name: true } },
-    },
-  });
-  return NextResponse.json({ ticket });
 }
 
 export async function POST(request: NextRequest) {
   const parsed = ticketSchema.safeParse(await request.json());
   if (!parsed.success)
-    return NextResponse.json(
-      { error: "Invalid ticket data", issues: parsed.error.flatten() },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: firstIssue(parsed.error) }, { status: 400 });
+
+  const actor = parsed.data.actorId ? await requireUser(parsed.data.actorId) : null;
   const requester = parsed.data.requesterId
-    ? await prisma.user.findUnique({ where: { id: parsed.data.requesterId } })
-    : await prisma.user.findFirst({
-        where: { active: true },
-        orderBy: { createdAt: "asc" },
-      });
+    ? await requireUser(parsed.data.requesterId)
+    : actor?.role === "REQUESTER"
+      ? actor
+      : await prisma.user.findFirst({
+          where: { active: true, role: "REQUESTER" },
+          orderBy: { name: "asc" },
+        });
   if (!requester)
     return NextResponse.json(
-      { error: "No active requester account is available." },
+      { error: "Choose the person this request is for." },
       { status: 400 },
     );
-  const latestTicket = await prisma.ticket.findFirst({
-    where: { number: { startsWith: "HD-" } },
-    orderBy: { createdAt: "desc" },
-    select: { number: true },
-  });
-  const lastNumber = latestTicket
-    ? Number(latestTicket.number.replace("HD-", ""))
-    : 1000;
+
+  let assigneeId: string | null = parsed.data.assigneeId ?? null;
+  if (assigneeId) {
+    const assignee = await requireUser(assigneeId);
+    if (!assignee || assignee.role === "REQUESTER")
+      return NextResponse.json(
+        { error: "Assign the ticket to an agent or admin." },
+        { status: 400 },
+      );
+  }
+
+  const dueDate = await dueDateForPriority(parsed.data.priority, parsed.data.dueDate);
   const ticket = await prisma.ticket.create({
     data: {
-      ...parsed.data,
+      number: await nextTicketNumber(),
+      subject: parsed.data.subject,
+      description: parsed.data.description,
+      category: parsed.data.category,
+      priority: parsed.data.priority,
       requesterId: requester.id,
-      number: `HD-${lastNumber + 1}`,
+      assigneeId,
+      dueDate,
     },
-    include: { requester: { select: { id: true, name: true } } },
+    include: ticketListInclude,
   });
+
+  const actorId = actor?.id ?? requester.id;
+  await recordActivity(
+    ticket.id,
+    actorId,
+    "Opened ticket",
+    `${ticket.number} · ${ticket.category} · ${ticket.priority}`,
+  );
+  await notifyOthers(
+    [assigneeId, requester.id],
+    actorId,
+    `New ticket ${ticket.number}`,
+    ticket.subject,
+  );
+
   return NextResponse.json({ ticket }, { status: 201 });
 }

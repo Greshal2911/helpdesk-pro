@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "A focused help desk and ticket management workspace.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>{children}</body>
